@@ -1606,4 +1606,180 @@ input:checked + .power-slider:before {
 .schedule-add .btn-secondary:hover {
     background: #c8e6c9;
     border-color: #2d5a27;
+
+}
+
+/* Responsive untuk HP kecil (max-width: 480px) */
+@media (max-width: 480px) {
+    .container {
+        padding: 8px;
+    }
+
+    .main-header {
+        padding: 20px 15px;
+    }
+
+    .logo-icon {
+        font-size: 2.5rem;
+    }
+
+    .site-title {
+        font-size: 1.8rem;
+    }
+
+    .tagline {
+        font-size: 1rem;
+    }
+
+    .panel {
+        padding: 15px;
+    }
+
+    .panel-header h2 {
+        font-size: 1.2rem;
+    }
+
+    .panel-icon {
+        font-size: 1.5rem;
+    }
+
+    .update-time, .current-mode {
+        font-size: 0.8rem;
+        padding: 3px 8px;
+    }
+
+    .sensor-value {
+        font-size: 2rem;
+    }
+
+    .sensor-title {
+        font-size: 0.9rem;
+    }
+
+    .mode-btn {
+        padding: 15px;
+    }
+
+    .mode-btn i {
+        font-size: 2rem;
+    }
+
+    .mode-btn span {
+        font-size: 1rem;
+    }
+
+    .mode-description {
+        font-size: 0.8rem;
+    }
+
+    .relay-card {
+        padding: 15px;
+    }
+
+    .relay-name {
+        font-size: 1rem;
+    }
+
+    .lamp-control {
+        padding: 15px;
+    }
+
+    .lamp-name {
+        font-size: 1rem;
+    }
+
+    .brightness-slider {
+        height: 8px;
+    }
+
+    .brightness-slider::-webkit-slider-thumb {
+        width: 20px;
+        height: 20px;
+    }
+
+    .setpoint-item {
+        padding: 15px;
+    }
+
+    .setpoint-input input {
+        width: 80px;
+        padding: 10px;
+        font-size: 1rem;
+    }
+
+    /* Jadwal sprayer: tumpuk vertikal */
+    .schedule-time-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .schedule-time-item input[type="time"] {
+        width: 100%;
+    }
+
+    .schedule-time-item .remove-time {
+        align-self: flex-end;
+    }
+
+    /* Status grid jadi 1 kolom */
+    .status-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .status-item {
+        padding: 12px;
+    }
+
+    .btn-primary {
+        padding: 12px 20px;
+        font-size: 0.9rem;
+        min-width: auto;
+    }
+
+    .footer-content {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .system-info {
+        text-align: center;
+    }
+
+    /* Panel tanaman */
+    .plant-info {
+        padding: 15px;
+    }
+
+    .plant-name {
+        font-size: 1.2rem;
+    }
+
+    .requirement-item {
+        padding: 15px;
+    }
+
+    .req-value {
+        font-size: 1.2rem;
+    }
+
+    .custom-form .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+
+    .form-actions button {
+        width: 100%;
+    }
+
+    /* Toast di HP melebar */
+    .toast-incubator {
+        top: 15px !important;
+        right: 15px !important;
+        left: 15px !important;
+        width: auto;
+    }
 }
