@@ -1287,6 +1287,7 @@ input:checked + .power-slider:before {
     width: 100%;
     height: 8px;
     -webkit-appearance: none;
+    appearance: none;
     background: #e8f5e9;
     border-radius: 4px;
     outline: none;
@@ -1363,6 +1364,7 @@ input:checked + .power-slider:before {
     grid-template-areas: 
         "sensor sensor"
         "mode plant"
+        "activity activity"
         "device device"
         "setpoint schedule"
         "status status";
@@ -1377,6 +1379,7 @@ input:checked + .power-slider:before {
             "sensor"
             "mode"
             "plant"
+            "activity"
             "device"
             "setpoint"
             "schedule"
@@ -1410,231 +1413,253 @@ input:checked + .power-slider:before {
 
 .status-panel {
     grid-area: status;
-}/* Responsive untuk HP kecil (max-width: 480px) */
-@media (max-width: 480px) {
-    .container {
-        padding: 8px;
-    }
+}
 
-    .main-header {
-        padding: 20px 15px;
-    }
+/* Notification Banner */
+.notification-banner {
+    background-color: #f44336;
+    color: white;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    animation: slideDown 0.3s ease;
+    position: relative;
+    z-index: 100;
+}
 
-    .logo-icon {
-        font-size: 2.5rem;
-    }
+.notification-banner.warning {
+    background-color: #ff9800;
+}
 
-    .site-title {
-        font-size: 1.8rem;
-    }
+.notification-banner.success {
+    background-color: #4caf50;
+}
 
-    .tagline {
-        font-size: 1rem;
-    }
+.notification-banner.info {
+    background-color: #2196f3;
+}
 
-    /* Panel header - biar tidak sempit */
-    .panel-header {
-        flex-wrap: wrap;
-        gap: 10px;
-    }
+.notification-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
 
-    .panel-header h2 {
-        font-size: 1.2rem;
-        min-width: 120px;
-    }
+.notification-content i {
+    font-size: 1.5rem;
+}
 
-    .panel-icon {
-        font-size: 1.5rem;
-    }
+.notification-content span {
+    flex: 1;
+    font-weight: 500;
+}
 
-    .update-time, .current-mode {
-        font-size: 0.75rem;
-        padding: 3px 8px;
-        white-space: nowrap;
-    }
+.close-banner {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.3s;
+}
 
-    /* Sensor card */
-    .sensor-grid {
-        grid-template-columns: 1fr;
-    }
+.close-banner:hover {
+    opacity: 1;
+}
 
-    .sensor-card {
-        padding: 15px;
+@keyframes slideDown {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
     }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
 
-    .sensor-value {
-        font-size: 2rem;
-    }
+/* Ubah posisi toast ke pojok kanan atas */
+.toast-incubator {
+    top: 30px !important;
+    right: 30px !important;
+    bottom: auto !important;
+}
 
-    .sensor-title {
-        font-size: 0.9rem;
-    }
+/* Notification Banner */
+.notification-banner {
+    background-color: #f44336;
+    color: white;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    animation: slideDown 0.3s ease;
+    position: relative;
+    z-index: 100;
+}
+.notification-banner.warning { background-color: #ff9800; }
+.notification-banner.success { background-color: #4caf50; }
+.notification-banner.info { background-color: #2196f3; }
+.notification-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+.notification-content i { font-size: 1.5rem; }
+.notification-content span { flex: 1; font-weight: 500; }
+.close-banner {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.3s;
+}
+.close-banner:hover { opacity: 1; }
+@keyframes slideDown {
+    from { transform: translateY(-100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+/* Posisi toast di atas */
+.toast-incubator {
+    top: 30px !important;
+    right: 30px !important;
+    bottom: auto !important;
+}
+.sprayer-countdown {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #e8f5e9;
+    padding: 6px 12px;
+    border-radius: 30px;
+    font-size: 0.9rem;
+    color: #2d5a27;
+    font-weight: 500;
+    border: 1px solid #a5d6a7;
+}
 
-    /* Mode selector */
-    .mode-selector {
-        grid-template-columns: 1fr;
-    }
+.sprayer-countdown i {
+    color: #4caf50;
+}
 
-    .mode-btn {
-        padding: 15px;
-    }
+.schedule-list {
+    margin-bottom: 15px;
+}
 
-    .mode-btn i {
-        font-size: 2rem;
-    }
+.schedule-time-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    background: #f9fdf9;
+    padding: 10px 15px;
+    border-radius: 10px;
+    border: 2px solid #e8f5e9;
+}
 
-    .mode-btn span {
-        font-size: 1rem;
-    }
+.schedule-time-item input[type="time"] {
+    flex: 1;
+    padding: 10px;
+    border: 2px solid #e8f5e9;
+    border-radius: 8px;
+    font-size: 1rem;
+    color: #2d5a27;
+    background: white;
+}
 
-    .mode-description {
-        font-size: 0.8rem;
-    }
+.schedule-time-item .remove-time {
+    background: none;
+    border: none;
+    color: #f44336;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 5px;
+    transition: color 0.3s;
+}
 
-    /* Plant panel */
-    .plant-control {
-        grid-template-columns: 1fr;
-    }
+.schedule-time-item .remove-time:hover {
+    color: #d32f2f;
+}
 
-    .plant-options {
-        grid-template-columns: 1fr;
-    }
+.schedule-add {
+    text-align: center;
+    margin-bottom: 20px;
+}
 
-    .plant-info {
-        padding: 15px;
-    }
+.schedule-add .btn-secondary {
+    background: #e8f5e9;
+    border: 2px dashed #4caf50;
+    color: #2d5a27;
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-size: 0.9rem;
+    transition: all 0.3s;
+}
 
-    .plant-name {
-        font-size: 1.2rem;
-    }
+.schedule-add .btn-secondary:hover {
+    background: #c8e6c9;
+    border-color: #2d5a27;
+}
 
-    .requirement-item {
-        padding: 15px;
-    }
+.activity-panel {
+    grid-area: activity;
+}
 
-    .req-value {
-        font-size: 1.2rem;
-    }
+.active-plant-card {
+    background: #f9fdf9;
+    border: 2px solid #e8f5e9;
+    border-radius: 12px;
+    padding: 16px;
+}
 
-    /* Custom plant form */
-    .custom-form .form-row {
-        grid-template-columns: 1fr;
-    }
+.active-plant-empty {
+    color: #81c784;
+    font-size: 0.95rem;
+    text-align: center;
+    padding: 24px 12px;
+}
 
-    .form-actions {
-        flex-direction: column;
-    }
+.active-plant-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #2d5a27;
+}
 
-    .form-actions button {
-        width: 100%;
-    }
+.active-plant-meta {
+    color: #5f7f57;
+    margin-top: 4px;
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+}
 
-    /* Relay cards */
-    .relay-grid {
-        grid-template-columns: 1fr;
-    }
+.active-plant-settings,
+.active-plant-systems {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
 
-    .relay-card {
-        padding: 15px;
-    }
+.active-plant-pill {
+    background: #ffffff;
+    border: 1px solid #c5e1a5;
+    color: #2d5a27;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
 
-    .relay-name {
-        font-size: 1rem;
-    }
-
-    /* Lamp control */
-    .lamp-control {
-        padding: 15px;
-    }
-
-    .lamp-name {
-        font-size: 1rem;
-    }
-
-    .brightness-slider {
-        height: 8px;
-    }
-
-    .brightness-slider::-webkit-slider-thumb {
-        width: 20px;
-        height: 20px;
-    }
-
-    /* Setpoint */
-    .setpoint-item {
-        padding: 15px;
-    }
-
-    .setpoint-input input {
-        width: 80px;
-        padding: 10px;
-        font-size: 1rem;
-    }
-
-    /* Jadwal sprayer */
-    .schedule-time-item {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 10px;
-    }
-
-    .schedule-time-item input[type="time"] {
-        width: 100%;
-    }
-
-    .schedule-time-item .remove-time {
-        align-self: flex-end;
-    }
-
-    /* Status grid */
-    .status-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .status-item {
-        padding: 12px;
-    }
-
-    /* Button */
-    .btn-primary {
-        padding: 12px 20px;
-        font-size: 0.9rem;
-        min-width: auto;
-    }
-
-    /* Footer */
-    .footer-content {
-        flex-direction: column;
-        text-align: center;
-    }
-
-    .system-info {
-        text-align: center;
-    }
-
-    /* Notification banner */
-    .notification-banner {
-        padding: 10px 15px;
-    }
-
-    .notification-content {
-        gap: 10px;
-    }
-
-    .notification-content i {
-        font-size: 1.2rem;
-    }
-
-    .notification-content span {
-        font-size: 0.9rem;
-    }
-
-    /* Toast di HP */
-    .toast-incubator {
-        top: 15px !important;
-        right: 15px !important;
-        left: 15px !important;
-        width: auto;
-        font-size: 0.9rem;
-    }
+.active-plant-actions {
+    display: flex;
+    justify-content: flex-end;
 }
