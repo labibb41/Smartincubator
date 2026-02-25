@@ -749,23 +749,27 @@ function renderActivePlantOverview() {
 
     emptyEl.style.display = "none";
     contentEl.style.display = "block";
-    titleEl.textContent = currentPlant.name || "Tanaman Aktif";
-    metaEl.textContent = `Mulai: ${formatDate(currentPlant.wateringStartDate)} | Jam: ${(currentPlant.wateringTimes || []).join(", ")}`;
+    titleEl.innerHTML = `<i class="fas fa-seedling"></i> ${currentPlant.name || "Tanaman Aktif"}`;
+    metaEl.innerHTML = `<i class="fas fa-calendar-day"></i> Mulai ${formatDate(currentPlant.wateringStartDate)} <span style="margin:0 6px;">|</span> <i class="fas fa-clock"></i> ${(currentPlant.wateringTimes || []).join(", ")}`;
 
     const settings = [
-        `Suhu ${currentPlant.tempMin}C - ${currentPlant.tempMax}C`,
-        `Durasi Sprayer ${currentPlant.wateringDuration}s`,
-        `Lampu ${currentPlant.lightPWM}%`,
-        `Mode ${String(currentMode).toUpperCase()}`
+        { icon: "fa-thermometer-half", text: `Suhu ${currentPlant.tempMin}C-${currentPlant.tempMax}C` },
+        { icon: "fa-hourglass-half", text: `Durasi ${currentPlant.wateringDuration}s` },
+        { icon: "fa-lightbulb", text: `Lampu ${currentPlant.lightPWM}%` },
+        { icon: "fa-gear", text: `Mode ${String(currentMode).toUpperCase()}` },
     ];
-    settingsEl.innerHTML = settings.map((x) => `<span class="active-plant-pill">${x}</span>`).join("");
+    settingsEl.innerHTML = settings
+        .map((x) => `<span class="active-plant-pill"><i class="fas ${x.icon}"></i>${x.text}</span>`)
+        .join("");
 
     const systems = [
-        `Kipas ${deviceState.fan ? "ON" : "OFF"}`,
-        `Sprayer ${deviceState.sprayer ? "ON" : "OFF"}`,
-        `Lampu ${deviceState.lamp ? "ON" : "OFF"}`
+        { icon: "fa-wind", label: "Kipas", on: deviceState.fan },
+        { icon: "fa-spray-can", label: "Sprayer", on: deviceState.sprayer },
+        { icon: "fa-lightbulb", label: "Lampu", on: deviceState.lamp },
     ];
-    systemsEl.innerHTML = systems.map((x) => `<span class="active-plant-pill">${x}</span>`).join("");
+    systemsEl.innerHTML = systems
+        .map((x) => `<span class="active-plant-pill ${x.on ? "on" : "off"}"><i class="fas ${x.icon}"></i>${x.label} ${x.on ? "ON" : "OFF"}</span>`)
+        .join("");
 }
 
 function finishActivePlant() {
