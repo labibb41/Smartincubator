@@ -13,7 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Montserrat:wght@700&display=swap" rel="stylesheet">
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="style.css">
+    <script src="script.js"></script>
 </head>
 
 <body>
@@ -216,15 +216,17 @@
                                     </div>
                                 </div>
 
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="customTimePagi">Waktu Penyiraman Pagi</label>
-                                        <input type="time" id="customTimePagi" value="08:00">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="customTimeSore">Waktu Penyiraman Sore</label>
-                                        <input type="time" id="customTimeSore" value="15:00">
-                                    </div>
+                                <div class="form-group">
+                                    <label for="customStartDate">Mulai Penyiraman (Tanggal)</label>
+                                    <input type="date" id="customStartDate">
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Jam Penyiraman</label>
+                                    <div id="customScheduleList" class="schedule-list"></div>
+                                    <button type="button" class="btn-secondary" id="customAddScheduleBtn">
+                                        <i class="fas fa-plus"></i> Tambah Jam
+                                    </button>
                                 </div>
 
                                 <div class="form-group">
@@ -254,6 +256,30 @@
                             </button>
                             <button class="btn-secondary" id="removePlantBtn">
                                 <i class="fas fa-trash"></i> Hapus Tanaman
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Panel Tumbuhan Aktif -->
+            <section class="panel activity-panel">
+                <div class="panel-header">
+                    <i class="fas fa-seedling panel-icon"></i>
+                    <h2>Tumbuhan yang Aktif</h2>
+                </div>
+                <div class="active-plant-card" id="activePlantCard">
+                    <div class="active-plant-empty" id="activePlantEmpty">
+                        Belum ada tumbuhan aktif.
+                    </div>
+                    <div class="active-plant-content" id="activePlantContent" style="display: none;">
+                        <div class="active-plant-title" id="activePlantTitle">-</div>
+                        <div class="active-plant-meta" id="activePlantMeta">-</div>
+                        <div class="active-plant-settings" id="activePlantSettings"></div>
+                        <div class="active-plant-systems" id="activePlantSystems"></div>
+                        <div class="active-plant-actions">
+                            <button class="btn-secondary" id="finishActivePlantBtn">
+                                <i class="fas fa-check"></i> Selesai
                             </button>
                         </div>
                     </div>
@@ -442,6 +468,16 @@
 
                     <div class="schedule-item">
                         <div class="schedule-label">
+                            <i class="fas fa-calendar-day"></i>
+                            <span>Tanggal Mulai Penyiraman</span>
+                        </div>
+                        <div class="schedule-input">
+                            <input type="date" id="sprayerStartDate">
+                        </div>
+                    </div>
+
+                    <div class="schedule-item">
+                        <div class="schedule-label">
                             <i class="fas fa-hourglass-half"></i>
                             <span>Durasi Sprayer</span>
                         </div>
@@ -548,7 +584,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
 
     <!-- Custom JS -->
-     <script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 
 </html>
