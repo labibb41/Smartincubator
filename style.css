@@ -1615,10 +1615,11 @@ input:checked + .power-slider:before {
 }
 
 .active-plant-card {
-    background: #f9fdf9;
-    border: 2px solid #e8f5e9;
-    border-radius: 12px;
-    padding: 16px;
+    background: linear-gradient(145deg, #f9fdf9, #ffffff);
+    border: 1px solid #d8ecd2;
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: inset 0 0 0 1px #edf7ea;
 }
 
 .active-plant-empty {
@@ -1629,16 +1630,33 @@ input:checked + .power-slider:before {
 }
 
 .active-plant-title {
-    font-size: 1.2rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: #2d5a27;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .active-plant-meta {
     color: #5f7f57;
     margin-top: 4px;
     margin-bottom: 12px;
-    font-size: 0.9rem;
+    font-size: 0.86rem;
+    background: #eef7ec;
+    border: 1px solid #d8ecd2;
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+
+.active-plant-group-title {
+    color: #3d6b36;
+    font-size: 0.84rem;
+    font-weight: 700;
+    margin: 10px 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .active-plant-settings,
@@ -1651,12 +1669,32 @@ input:checked + .power-slider:before {
 
 .active-plant-pill {
     background: #ffffff;
-    border: 1px solid #c5e1a5;
+    border: 1px solid #cfe6c6;
     color: #2d5a27;
     border-radius: 999px;
-    padding: 6px 10px;
+    padding: 6px 10px 6px 8px;
     font-size: 0.82rem;
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.active-plant-pill i {
+    width: 16px;
+    text-align: center;
+    color: #5b8f51;
+}
+
+.active-plant-pill.on {
+    background: #eaf8e6;
+    border-color: #8ed089;
+}
+
+.active-plant-pill.off {
+    background: #f7faf7;
+    border-color: #d9e8d4;
+    color: #5f7459;
 }
 
 .active-plant-actions {
