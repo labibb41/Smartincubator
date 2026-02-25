@@ -4,7 +4,6 @@ const firebaseConfig = {
     databaseURL: "https://smart-incubator-d53d4-default-rtdb.asia-southeast1.firebasedatabase.app/"
 };
 
-// Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -16,29 +15,33 @@ let lastSeenTime = 0;
 let lastSensorTime = Date.now();
 let plantsList = {};
 let editingPlantId = null;
-let scheduleTimes = ["08:00", "15:00"]; // default jadwal manual
+let scheduleTimes = ["08:00", "15:00"];
+let customScheduleTimes = ["08:00", "15:00"];
 let countdownInterval = null;
 let sprayerEndTime = null;
+let autoSchedulerInterval = null;
+let lastAutoSprayMinuteKey = null;
+let deviceState = { fan: false, sprayer: false, lamp: false };
+let activePlantClosed = false;
 
 // ==================== DOM READY ====================
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("🌿 Inkubator Dashboard Ready!");
     initUI();
     initFirebaseListeners();
     initEventListeners();
+    startAutoScheduler();
     updateTime();
     setInterval(updateTime, 1000);
     setInterval(checkESPConnection, 5000);
 });
 
-// ==================== INIT UI ====================
 function initUI() {
-    // Set default values
     document.getElementById("minTemp").value = 26;
     document.getElementById("maxTemp").value = 33;
     document.getElementById("sprayerDurasi").value = 5;
+    document.getElementById("sprayerStartDate").value = todayDate();
+    document.getElementById("customStartDate").value = todayDate();
 
-    // Brightness slider
     const brightnessSlider = document.getElementById("brightnessSlider");
     const brightnessValue = document.getElementById("brightnessValue");
     if (brightnessSlider && brightnessValue) {
@@ -46,130 +49,104 @@ function initUI() {
         brightnessValue.textContent = "60%";
     }
 
-    // Jadwal default
-    scheduleTimes = ["08:00", "15:00"];
     renderScheduleList(scheduleTimes);
+    renderCustomScheduleList(customScheduleTimes);
+    renderActivePlantOverview();
 }
 
-// ==================== FIREBASE LISTENERS ====================
 function initFirebaseListeners() {
-    console.log("🔥 Firebase Listeners Active");
+    db.ref(".info/connected").on("value", (snapshot) => updateConnectionStatus(snapshot.val()));
 
-    // Koneksi Firebase
-    db.ref(".info/connected").on("value", (snapshot) => {
-        updateConnectionStatus(snapshot.val());
-    });
-
-    // Mode
     db.ref("/device/inkubator_1/mode").on("value", (snapshot) => {
         const mode = snapshot.val();
-        if (mode) {
-            currentMode = mode;
-            updateModeUI(mode);
-        }
+        if (!mode) return;
+        currentMode = mode;
+        updateModeUI(mode);
+        renderActivePlantOverview();
     });
 
-    // Sensor suhu
     db.ref("/device/inkubator_1/sensor/temperature").on("value", (snapshot) => {
         const suhu = snapshot.val();
-        if (suhu !== null) {
-            lastSensorTime = Date.now();
-            updateTemperatureUI(suhu);
-            if (currentPlant) updatePlantStatusIndicators();
-        }
+        if (suhu === null) return;
+        lastSensorTime = Date.now();
+        updateTemperatureUI(suhu);
+        if (currentPlant) updatePlantStatusIndicators();
     });
 
-    // Sensor kelembaban
     db.ref("/device/inkubator_1/sensor/humidity").on("value", (snapshot) => {
         const hum = snapshot.val();
-        if (hum !== null) {
-            lastSensorTime = Date.now();
-            updateHumidityUI(hum);
-            if (currentPlant) updatePlantStatusIndicators();
-        }
+        if (hum === null) return;
+        lastSensorTime = Date.now();
+        updateHumidityUI(hum);
+        if (currentPlant) updatePlantStatusIndicators();
     });
 
-    // Relay Fan
     db.ref("/device/inkubator_1/relay/fan").on("value", (snapshot) => {
-        updateRelayUI("kipas", snapshot.val() ? 1 : 0);
+        deviceState.fan = snapshot.val() === true;
+        updateRelayUI("kipas", deviceState.fan ? 1 : 0);
+        renderActivePlantOverview();
     });
 
-    // Relay Sprayer
     db.ref("/device/inkubator_1/relay/sprayer").on("value", (snapshot) => {
-        updateRelayUI("sprayer", snapshot.val() ? 1 : 0);
+        deviceState.sprayer = snapshot.val() === true;
+        updateRelayUI("sprayer", deviceState.sprayer ? 1 : 0);
+        renderActivePlantOverview();
     });
 
-    // Relay Lamp
     db.ref("/device/inkubator_1/relay/lamp").on("value", (snapshot) => {
-        const status = snapshot.val() ? 1 : 0;
+        deviceState.lamp = snapshot.val() === true;
+        const status = deviceState.lamp ? 1 : 0;
         updateLampuRelayUI(status);
         updateLampPWMStatus();
+        renderActivePlantOverview();
     });
 
-    // PWM Lamp
     db.ref("/device/inkubator_1/lamp_pwm").on("value", (snapshot) => {
         const brightness = snapshot.val();
-        if (brightness !== null) {
-            updateBrightnessUI(brightness);
-        }
+        if (brightness !== null) updateBrightnessUI(brightness);
     });
 
-    // Manual sprayer times
     db.ref("/device/inkubator_1/manual/sprayer_times").on("value", (snapshot) => {
         const times = snapshot.val();
         if (times && Array.isArray(times)) {
-            scheduleTimes = times;
+            scheduleTimes = normalizeTimes(times);
             renderScheduleList(scheduleTimes);
         }
     });
 
-    // Manual sprayer duration
     db.ref("/device/inkubator_1/manual/sprayer_duration").on("value", (snapshot) => {
         const durasi = snapshot.val();
-        if (durasi !== null) {
-            document.getElementById("sprayerDurasi").value = durasi;
-        }
+        if (durasi !== null) document.getElementById("sprayerDurasi").value = durasi;
     });
 
-    // Last seen untuk deteksi ESP offline
+    db.ref("/device/inkubator_1/manual/sprayer_start_date").on("value", (snapshot) => {
+        const startDate = snapshot.val();
+        if (startDate) document.getElementById("sprayerStartDate").value = startDate;
+    });
+
     db.ref("/device/inkubator_1/last_seen").on("value", (snapshot) => {
         const ts = snapshot.val();
-        if (ts !== null) {
-            lastSeenTime = ts;
-            const now = Math.floor(Date.now() / 1000);
-            updateESPStatus(now - ts <= 20);
-        } else {
+        if (ts === null) {
             lastSeenTime = 0;
+            return;
         }
+        lastSeenTime = ts;
+        const now = Math.floor(Date.now() / 1000);
+        updateESPStatus(now - ts <= 20);
     });
 
-    // Daftar tanaman
     db.ref("/plants").on("value", (snapshot) => {
         plantsList = snapshot.val() || {};
         renderPlantButtons();
-        // Cek apakah ada tanaman aktif
         db.ref("/device/inkubator_1/active_plant").once("value", (plantSnap) => {
             const activeId = plantSnap.val();
-            if (activeId && plantsList[activeId]) {
-                selectPlantById(activeId);
-            }
+            if (activeId && plantsList[activeId]) selectPlantById(activeId);
+            else renderActivePlantOverview();
         });
     });
+
 }
 
-// ==================== DETEKSI ESP OFFLINE ====================
-function checkESPConnection() {
-    const nowSec = Math.floor(Date.now() / 1000);
-    if (lastSeenTime > 0) {
-        const diff = nowSec - lastSeenTime;
-        updateESPStatus(diff <= 20);
-    } else {
-        const diffMs = Date.now() - lastSensorTime;
-        updateESPStatus(diffMs <= 20000);
-    }
-}
-
-// ==================== RENDER TANAMAN ====================
 function renderPlantButtons() {
     const container = document.querySelector(".plant-options");
     if (!container) return;
@@ -184,11 +161,10 @@ function renderPlantButtons() {
         container.appendChild(btn);
     }
 
-    // Tombol custom
     const customBtn = document.createElement("button");
     customBtn.className = "plant-btn";
     customBtn.dataset.plantId = "custom";
-    customBtn.innerHTML = `<i class="fas fa-plus"></i><span>Custom</span>`;
+    customBtn.innerHTML = '<i class="fas fa-plus"></i><span>Custom</span>';
     customBtn.addEventListener("click", showCustomPlantForm);
     container.appendChild(customBtn);
 }
@@ -202,6 +178,7 @@ function selectPlantById(plantId) {
     const plant = plantsList[plantId];
     if (!plant) return;
 
+    const times = normalizeTimes(plant.watering?.times || ["08:00", "15:00"]);
     currentPlant = {
         id: plantId,
         name: plant.name,
@@ -209,203 +186,186 @@ function selectPlantById(plantId) {
         tempMax: plant.temp_optimal?.max || 30,
         lightPWM: plant.light_pwm || 60,
         wateringDuration: plant.watering?.duration || 10,
-        wateringTimes: plant.watering?.times || ["08:00", "15:00"],
+        wateringTimes: times,
+        wateringStartDate: plant.watering?.start_date || todayDate(),
         auto: plant.auto !== false
     };
 
     updatePlantInfo(currentPlant);
+    activePlantClosed = false;
     db.ref("/device/inkubator_1/active_plant").set(plantId);
 
-    // Highlight tombol aktif
     document.querySelectorAll(".plant-btn").forEach(btn => btn.classList.remove("active"));
     const activeBtn = Array.from(document.querySelectorAll(".plant-btn")).find(btn => btn.dataset.plantId === plantId);
     if (activeBtn) activeBtn.classList.add("active");
 
-    // Isi jadwal dan durasi dari tanaman
     scheduleTimes = [...currentPlant.wateringTimes];
     renderScheduleList(scheduleTimes);
     document.getElementById("sprayerDurasi").value = currentPlant.wateringDuration;
+    document.getElementById("sprayerStartDate").value = currentPlant.wateringStartDate || todayDate();
 
     hideCustomPlantForm();
     showPlantActions();
+    renderActivePlantOverview();
 }
 
-// ==================== PLANT FEATURES ====================
 function updatePlantInfo(plant) {
     document.querySelector(".plant-name").textContent = plant.name;
-    document.querySelector(".plant-status").textContent = `Tanaman ${plant.name} aktif`;
-    document.getElementById("tempRequirement").textContent = `${plant.tempMin}°C - ${plant.tempMax}°C`;
-    document.getElementById("tempReqRange").textContent = `Min: ${plant.tempMin}°C, Max: ${plant.tempMax}°C`;
+    document.querySelector(".plant-status").textContent = `Aktif mulai ${formatDate(plant.wateringStartDate)} | ${plant.wateringTimes.join(", ")}`;
+    document.getElementById("tempRequirement").textContent = `${plant.tempMin}C - ${plant.tempMax}C`;
+    document.getElementById("tempReqRange").textContent = `Min: ${plant.tempMin}C, Max: ${plant.tempMax}C`;
     const midTemp = (plant.tempMin + plant.tempMax) / 2;
     document.getElementById("tempReqFill").style.width = (midTemp / 50 * 100) + "%";
 
-    // Kelembaban default (sementara)
     document.getElementById("humidityRequirement").textContent = "60%";
     document.getElementById("humidityReqRange").textContent = "Optimal: 60%";
     document.getElementById("humidityReqFill").style.width = "60%";
 }
 
-function showPlantActions() {
-    document.getElementById("plantActions").style.display = "flex";
-}
-
-function hidePlantActions() {
-    document.getElementById("plantActions").style.display = "none";
-}
+function showPlantActions() { document.getElementById("plantActions").style.display = "flex"; }
+function hidePlantActions() { document.getElementById("plantActions").style.display = "none"; }
 
 function showCustomPlantForm() {
     editingPlantId = null;
     document.querySelector("#plantCustomForm .custom-title").textContent = "Tanaman Custom";
     document.getElementById("saveCustomBtn").innerHTML = '<i class="fas fa-save"></i> Simpan Tanaman';
-
-    // Reset form
     document.getElementById("customName").value = "";
     document.getElementById("customMinTemp").value = "20";
     document.getElementById("customMaxTemp").value = "30";
     document.getElementById("customLightPWM").value = "60";
     document.getElementById("customLightValue").textContent = "60%";
     document.getElementById("customDuration").value = "10";
-    document.getElementById("customTimePagi").value = "08:00";
-    document.getElementById("customTimeSore").value = "15:00";
     document.getElementById("customAuto").checked = true;
-
+    document.getElementById("customStartDate").value = todayDate();
+    customScheduleTimes = ["08:00", "15:00"];
+    renderCustomScheduleList(customScheduleTimes);
     document.getElementById("plantCustomForm").style.display = "block";
     hidePlantActions();
 }
 
-function hideCustomPlantForm() {
-    document.getElementById("plantCustomForm").style.display = "none";
-}
+function hideCustomPlantForm() { document.getElementById("plantCustomForm").style.display = "none"; }
 
 function saveCustomPlant() {
     const name = document.getElementById("customName").value.trim();
-    const minTemp = parseInt(document.getElementById("customMinTemp").value);
-    const maxTemp = parseInt(document.getElementById("customMaxTemp").value);
-    const lightPWM = parseInt(document.getElementById("customLightPWM").value);
-    const duration = parseInt(document.getElementById("customDuration").value);
-    const timePagi = document.getElementById("customTimePagi").value;
-    const timeSore = document.getElementById("customTimeSore").value;
+    const minTemp = parseInt(document.getElementById("customMinTemp").value, 10);
+    const maxTemp = parseInt(document.getElementById("customMaxTemp").value, 10);
+    const lightPWM = parseInt(document.getElementById("customLightPWM").value, 10);
+    const duration = parseInt(document.getElementById("customDuration").value, 10);
     const auto = document.getElementById("customAuto").checked;
+    const startDate = document.getElementById("customStartDate").value;
+    const times = getCustomScheduleTimes();
 
-    if (!name) {
-        showTemporaryNotification("Masukkan nama tanaman!", "error");
-        return;
-    }
-    if (minTemp >= maxTemp) {
-        showTemporaryNotification("Suhu minimum harus kurang dari maksimum!", "error");
-        return;
-    }
-    if (duration < 1 || duration > 60) {
-        showTemporaryNotification("Durasi harus 1-60 detik!", "error");
-        return;
-    }
+    if (!name) return showTemporaryNotification("Masukkan nama tanaman!", "error");
+    if (minTemp >= maxTemp) return showTemporaryNotification("Suhu minimum harus kurang dari maksimum!", "error");
+    if (duration < 1 || duration > 60) return showTemporaryNotification("Durasi harus 1-60 detik!", "error");
+    if (!startDate) return showTemporaryNotification("Pilih tanggal mulai penyiraman!", "error");
+    if (times.length === 0) return showTemporaryNotification("Tambahkan minimal 1 jam penyiraman!", "error");
 
     const plantData = {
-        name: name,
-        auto: auto,
+        name,
+        auto,
         light_kelvin: 6500,
         light_pwm: lightPWM,
         par_target: 200,
         temp_optimal: { min: minTemp, max: maxTemp },
-        watering: { duration: duration, times: [timePagi, timeSore] }
+        watering: { duration, start_date: startDate, times }
     };
 
     if (editingPlantId) {
-        db.ref("/plants/" + editingPlantId).update(plantData)
+        const updateId = editingPlantId;
+        return db.ref("/plants/" + updateId).update(plantData)
             .then(() => {
                 showTemporaryNotification("Tanaman berhasil diperbarui!", "success");
                 editingPlantId = null;
-                document.querySelector("#plantCustomForm .custom-title").textContent = "Tanaman Custom";
-                document.getElementById("saveCustomBtn").innerHTML = '<i class="fas fa-save"></i> Simpan Tanaman';
                 hideCustomPlantForm();
-                selectPlantById(editingPlantId);
+                selectPlantById(updateId);
             })
-            .catch((error) => {
-                console.error("Error updating plant:", error);
-                showTemporaryNotification("Gagal memperbarui tanaman!", "error");
-            });
-    } else {
-        const plantId = "plant_" + Date.now();
-        db.ref("/plants/" + plantId).set(plantData)
-            .then(() => {
-                showTemporaryNotification("Tanaman berhasil disimpan!", "success");
-                cancelCustomPlant();
-            })
-            .catch((error) => {
-                console.error("Error saving plant:", error);
-                showTemporaryNotification("Gagal menyimpan tanaman!", "error");
-            });
+            .catch(() => showTemporaryNotification("Gagal memperbarui tanaman!", "error"));
     }
+
+    const plantId = "plant_" + Date.now();
+    db.ref("/plants/" + plantId).set(plantData)
+        .then(() => {
+            showTemporaryNotification("Tanaman berhasil disimpan!", "success");
+            cancelCustomPlant();
+        })
+        .catch(() => showTemporaryNotification("Gagal menyimpan tanaman!", "error"));
 }
 
 function cancelCustomPlant() {
     hideCustomPlantForm();
     editingPlantId = null;
-    document.querySelector("#plantCustomForm .custom-title").textContent = "Tanaman Custom";
-    document.getElementById("saveCustomBtn").innerHTML = '<i class="fas fa-save"></i> Simpan Tanaman';
-
-    // Kembali ke tanaman aktif sebelumnya
     db.ref("/device/inkubator_1/active_plant").once("value", (snap) => {
         const activeId = snap.val();
-        if (activeId && plantsList[activeId]) {
-            selectPlantById(activeId);
-        } else {
-            resetPlantInfo();
-        }
+        if (activeId && plantsList[activeId]) selectPlantById(activeId);
+        else resetPlantInfo();
     });
 }
 
 function applyPlantSettings() {
-    if (!currentPlant) {
-        showToast("Tidak ada tanaman yang dipilih", "warning");
-        return;
-    }
+    if (!currentPlant) return showToast("Tidak ada tanaman yang dipilih", "warning");
 
-    // Terapkan setpoint suhu (tampilan)
     document.getElementById("minTemp").value = currentPlant.tempMin;
     document.getElementById("maxTemp").value = currentPlant.tempMax;
     updateTempRange();
 
-    // Terapkan jadwal sprayer ke form
     scheduleTimes = [...currentPlant.wateringTimes];
     renderScheduleList(scheduleTimes);
     document.getElementById("sprayerDurasi").value = currentPlant.wateringDuration;
+    document.getElementById("sprayerStartDate").value = currentPlant.wateringStartDate || todayDate();
 
-    // Kirim kecerahan lampu ke database
-    db.ref("/device/inkubator_1/lamp_pwm").set(currentPlant.lightPWM)
-        .catch(err => console.error("Gagal set lamp_pwm:", err));
+    const payload = {
+        active_plant_id: currentPlant.id,
+        start_date: currentPlant.wateringStartDate || todayDate(),
+        times: scheduleTimes,
+        duration: currentPlant.wateringDuration
+    };
 
-    showTemporaryNotification(`Pengaturan ${currentPlant.name} diterapkan`, "success");
+    Promise.all([
+        db.ref("/device/inkubator_1/lamp_pwm").set(currentPlant.lightPWM),
+        db.ref("/device/inkubator_1/manual/sprayer_times").set(scheduleTimes),
+        db.ref("/device/inkubator_1/manual/sprayer_duration").set(currentPlant.wateringDuration),
+        db.ref("/device/inkubator_1/manual/sprayer_start_date").set(payload.start_date),
+        db.ref("/device/inkubator_1/auto_schedule").set(payload)
+    ]).then(() => {
+        saveAppliedPlantHistory(currentPlant);
+        pushSystemLog("apply_plant_settings", { plantName: currentPlant.name, times: scheduleTimes.join(", "), startDate: payload.start_date });
+        activePlantClosed = false;
+        renderActivePlantOverview();
+        showTemporaryNotification(`Pengaturan ${currentPlant.name} diterapkan`, "success");
+    }).catch(() => showTemporaryNotification("Gagal menerapkan pengaturan tanaman", "error"));
 }
 
 function removeCurrentPlant() {
     if (!currentPlant || !currentPlant.id) return;
-    if (confirm(`Hapus tanaman ${currentPlant.name}?`)) {
-        db.ref("/plants/" + currentPlant.id).remove()
-            .then(() => {
-                showTemporaryNotification("Tanaman dihapus", "success");
-                resetPlantInfo();
-                db.ref("/device/inkubator_1/active_plant").set("");
-            })
-            .catch(error => showTemporaryNotification("Gagal menghapus", "error"));
-    }
-} 
+    if (!confirm(`Hapus tanaman ${currentPlant.name}?`)) return;
+    const removedName = currentPlant.name;
 
+    db.ref("/plants/" + currentPlant.id).remove()
+        .then(() => {
+            showTemporaryNotification("Tanaman dihapus", "success");
+            resetPlantInfo();
+            db.ref("/device/inkubator_1/active_plant").set("");
+            pushSystemLog("remove_plant", { plantName: removedName });
+            renderActivePlantOverview();
+        })
+        .catch(() => showTemporaryNotification("Gagal menghapus", "error"));
+}
 
 function resetPlantInfo() {
     currentPlant = null;
     document.querySelector(".plant-name").textContent = "Belum ada tanaman";
     document.querySelector(".plant-status").textContent = "Pilih tanaman untuk melihat kebutuhan";
-    document.getElementById("tempRequirement").textContent = "--°C";
-    document.getElementById("tempReqRange").textContent = "Min: --°C, Max: --°C";
+    document.getElementById("tempRequirement").textContent = "--C";
+    document.getElementById("tempReqRange").textContent = "Min: --C, Max: --C";
     document.getElementById("tempReqFill").style.width = "0%";
     document.getElementById("humidityRequirement").textContent = "--%";
     document.getElementById("humidityReqRange").textContent = "Optimal: --%";
     document.getElementById("humidityReqFill").style.width = "0%";
-
     hidePlantActions();
     hideCustomPlantForm();
     document.querySelectorAll(".plant-btn").forEach(btn => btn.classList.remove("active"));
+    renderActivePlantOverview();
 }
 
 function editPlant() {
@@ -417,19 +377,18 @@ function editPlant() {
     document.getElementById("customLightPWM").value = currentPlant.lightPWM;
     document.getElementById("customLightValue").textContent = currentPlant.lightPWM + "%";
     document.getElementById("customDuration").value = currentPlant.wateringDuration;
-    document.getElementById("customTimePagi").value = currentPlant.wateringTimes[0] || "08:00";
-    document.getElementById("customTimeSore").value = currentPlant.wateringTimes[1] || "15:00";
     document.getElementById("customAuto").checked = currentPlant.auto;
+    document.getElementById("customStartDate").value = currentPlant.wateringStartDate || todayDate();
+    customScheduleTimes = normalizeTimes(currentPlant.wateringTimes || []);
+    renderCustomScheduleList(customScheduleTimes);
 
     editingPlantId = currentPlant.id;
     document.querySelector("#plantCustomForm .custom-title").textContent = "Edit Tanaman";
     document.getElementById("saveCustomBtn").innerHTML = '<i class="fas fa-save"></i> Update Tanaman';
-
     hidePlantActions();
     document.getElementById("plantCustomForm").style.display = "block";
 }
 
-// ==================== JADWAL SPRAYER DINAMIS ====================
 function renderScheduleList(times) {
     const container = document.getElementById("scheduleList");
     if (!container) return;
@@ -443,201 +402,182 @@ function renderScheduleList(times) {
     times.forEach((time, index) => {
         const item = document.createElement("div");
         item.className = "schedule-time-item";
-        item.innerHTML = `
-            <input type="time" class="schedule-time-input" data-index="${index}" value="${time}">
-            <button class="remove-time" data-index="${index}"><i class="fas fa-times"></i></button>
-        `;
+        item.innerHTML = `<input type="time" class="schedule-time-input" data-index="${index}" value="${time}"><button class="remove-time" data-index="${index}"><i class="fas fa-times"></i></button>`;
         container.appendChild(item);
     });
 
     document.querySelectorAll(".schedule-time-input").forEach(input => {
-        input.addEventListener("change", function (e) {
-            const idx = parseInt(this.dataset.index);
+        input.addEventListener("change", function () {
+            const idx = parseInt(this.dataset.index, 10);
             scheduleTimes[idx] = this.value;
         });
     });
 
     document.querySelectorAll(".remove-time").forEach(btn => {
-        btn.addEventListener("click", function (e) {
-            const idx = parseInt(this.dataset.index);
+        btn.addEventListener("click", function () {
+            const idx = parseInt(this.dataset.index, 10);
             scheduleTimes.splice(idx, 1);
             renderScheduleList(scheduleTimes);
         });
     });
 }
 
-// ==================== EVENT LISTENERS ====================
+function renderCustomScheduleList(times) {
+    const container = document.getElementById("customScheduleList");
+    if (!container) return;
+    container.innerHTML = "";
+
+    if (!times || times.length === 0) {
+        container.innerHTML = '<p style="color: #81c784; text-align: center;">Belum ada jam penyiraman.</p>';
+        return;
+    }
+
+    times.forEach((time, index) => {
+        const item = document.createElement("div");
+        item.className = "schedule-time-item";
+        item.innerHTML = `<input type="time" class="custom-schedule-time-input" data-index="${index}" value="${time}"><button type="button" class="remove-custom-time" data-index="${index}"><i class="fas fa-times"></i></button>`;
+        container.appendChild(item);
+    });
+
+    document.querySelectorAll(".custom-schedule-time-input").forEach(input => {
+        input.addEventListener("change", function () {
+            const idx = parseInt(this.dataset.index, 10);
+            customScheduleTimes[idx] = this.value;
+        });
+    });
+
+    document.querySelectorAll(".remove-custom-time").forEach(btn => {
+        btn.addEventListener("click", function () {
+            const idx = parseInt(this.dataset.index, 10);
+            customScheduleTimes.splice(idx, 1);
+            renderCustomScheduleList(customScheduleTimes);
+        });
+    });
+}
+
+function getCustomScheduleTimes() { return normalizeTimes(customScheduleTimes); }
+function normalizeTimes(times) {
+    const filtered = (times || []).filter(t => typeof t === "string" && t.trim() !== "");
+    const uniq = [...new Set(filtered)];
+    return uniq.sort();
+}
+
+function saveSprayerSchedule() {
+    const durasi = parseInt(document.getElementById("sprayerDurasi").value, 10);
+    const startDate = document.getElementById("sprayerStartDate").value;
+    const validTimes = normalizeTimes(scheduleTimes);
+
+    if (durasi < 1 || durasi > 60) return showTemporaryNotification("Durasi harus 1-60 detik!", "error");
+    if (!startDate) return showTemporaryNotification("Pilih tanggal mulai penyiraman!", "error");
+    if (validTimes.length === 0) return showTemporaryNotification("Setidaknya satu jadwal harus diisi!", "error");
+
+    scheduleTimes = validTimes;
+    renderScheduleList(scheduleTimes);
+
+    Promise.all([
+        db.ref("/device/inkubator_1/manual/sprayer_times").set(scheduleTimes),
+        db.ref("/device/inkubator_1/manual/sprayer_duration").set(durasi),
+        db.ref("/device/inkubator_1/manual/sprayer_start_date").set(startDate)
+    ]).then(() => {
+        pushSystemLog("save_sprayer_schedule", { startDate, duration: durasi, times: scheduleTimes.join(", ") });
+        showTemporaryNotification("Jadwal sprayer tersimpan!", "success");
+    }).catch(() => showTemporaryNotification("Gagal menyimpan jadwal!", "error"));
+}
+
 function initEventListeners() {
-    // Mode buttons
     document.getElementById("autoModeBtn").addEventListener("click", () => setMode("auto"));
     document.getElementById("manualModeBtn").addEventListener("click", () => setMode("manual"));
 
-    // Relay toggles
-    document.getElementById("kipasToggle").addEventListener("change", function (e) {
-        if (currentMode === "manual") setRelay("fan", e.target.checked);
-        else {
-            e.target.checked = !e.target.checked;
-            showToast("Mode Auto aktif! Ganti ke Manual dulu.", "warning");
-        }
-    });
+    document.getElementById("kipasToggle").addEventListener("change", (e) => currentMode === "manual" ? setRelay("fan", e.target.checked) : rollbackToggle(e));
+    document.getElementById("sprayerToggle").addEventListener("change", (e) => currentMode === "manual" ? setRelay("sprayer", e.target.checked) : rollbackToggle(e));
+    document.getElementById("lampuRelayToggle").addEventListener("change", (e) => currentMode === "manual" ? setRelay("lamp", e.target.checked) : rollbackToggle(e));
+    document.getElementById("lampPWMToggle").addEventListener("change", (e) => currentMode === "manual" ? setRelay("lamp", e.target.checked) : rollbackToggle(e));
 
-    document.getElementById("sprayerToggle").addEventListener("change", function (e) {
-        if (currentMode === "manual") setRelay("sprayer", e.target.checked);
-        else {
-            e.target.checked = !e.target.checked;
-            showToast("Mode Auto aktif! Ganti ke Manual dulu.", "warning");
-        }
-    });
-
-    document.getElementById("lampuRelayToggle").addEventListener("change", function (e) {
-        if (currentMode === "manual") setRelay("lamp", e.target.checked);
-        else {
-            e.target.checked = !e.target.checked;
-            showToast("Mode Auto aktif! Ganti ke Manual dulu.", "warning");
-        }
-    });
-
-    document.getElementById("lampPWMToggle").addEventListener("change", function (e) {
-        if (currentMode === "manual") setRelay("lamp", e.target.checked);
-        else {
-            e.target.checked = !e.target.checked;
-            showToast("Mode Auto aktif! Ganti ke Manual dulu.", "warning");
-        }
-    });
-
-    // Brightness slider
     const brightnessSlider = document.getElementById("brightnessSlider");
     const brightnessValue = document.getElementById("brightnessValue");
-    brightnessSlider.addEventListener("input", function (e) {
-        brightnessValue.textContent = e.target.value + "%";
-    });
-    brightnessSlider.addEventListener("change", function (e) {
-        if (currentMode === "manual") {
-            const brightness = parseInt(e.target.value);
-            db.ref("/device/inkubator_1/lamp_pwm").set(brightness);
-            showTemporaryNotification(`Kecerahan lampu: ${brightness}%`, "success");
-        } else {
-            showToast("Mode Auto aktif! Ganti ke Manual dulu.", "warning");
-        }
+    brightnessSlider.addEventListener("input", (e) => brightnessValue.textContent = e.target.value + "%");
+    brightnessSlider.addEventListener("change", (e) => {
+        if (currentMode !== "manual") return showToast("Mode Auto aktif! Ganti ke Manual dulu.", "warning");
+        const brightness = parseInt(e.target.value, 10);
+        db.ref("/device/inkubator_1/lamp_pwm").set(brightness);
+        pushSystemLog("set_lamp_brightness", { brightness: brightness + "%" });
+        showTemporaryNotification(`Kecerahan lampu: ${brightness}%`, "success");
     });
 
-    // Save setpoint (hanya info)
-    document.getElementById("saveSetpointBtn").addEventListener("click", () => {
-        showToast("Setpoint suhu mengikuti tanaman yang dipilih", "info");
-    });
-
-    // Save sprayer
+    document.getElementById("saveSetpointBtn").addEventListener("click", () => showToast("Setpoint suhu mengikuti tanaman yang dipilih", "info"));
     document.getElementById("saveSprayerBtn").addEventListener("click", saveSprayerSchedule);
+    document.getElementById("addScheduleBtn").addEventListener("click", () => { scheduleTimes.push("12:00"); renderScheduleList(scheduleTimes); });
+    document.getElementById("customAddScheduleBtn").addEventListener("click", () => { customScheduleTimes.push("12:00"); renderCustomScheduleList(customScheduleTimes); });
 
-    // Add schedule button
-    document.getElementById("addScheduleBtn").addEventListener("click", function () {
-        scheduleTimes.push("12:00");
-        renderScheduleList(scheduleTimes);
-    });
-
-    // Close banner
-    const closeBanner = document.getElementById("closeBanner");
-    if (closeBanner) closeBanner.addEventListener("click", hideBanner);
-
-    // Plant buttons
+    document.getElementById("closeBanner")?.addEventListener("click", hideBanner);
     document.getElementById("cancelCustomBtn").addEventListener("click", cancelCustomPlant);
     document.getElementById("saveCustomBtn").addEventListener("click", saveCustomPlant);
-    document.getElementById("applySettingsBtn").addEventListener("click", () => {
-        if (currentPlant) applyPlantSettings();
-        else showToast("Pilih tanaman terlebih dahulu", "warning");
-    });
+    document.getElementById("applySettingsBtn").addEventListener("click", () => currentPlant ? applyPlantSettings() : showToast("Pilih tanaman terlebih dahulu", "warning"));
     document.getElementById("removePlantBtn").addEventListener("click", removeCurrentPlant);
     document.getElementById("editPlantBtn").addEventListener("click", editPlant);
+    document.getElementById("finishActivePlantBtn")?.addEventListener("click", finishActivePlant);
 
-    // Custom light slider
     const customLight = document.getElementById("customLightPWM");
     const customLightVal = document.getElementById("customLightValue");
-    if (customLight && customLightVal) {
-        customLight.addEventListener("input", (e) => {
-            customLightVal.textContent = e.target.value + "%";
-        });
-    }
+    if (customLight && customLightVal) customLight.addEventListener("input", (e) => customLightVal.textContent = e.target.value + "%");
 }
 
-// ==================== FIREBASE ACTIONS ====================
+function rollbackToggle(e) {
+    e.target.checked = !e.target.checked;
+    showToast("Mode Auto aktif! Ganti ke Manual dulu.", "warning");
+}
+
 function setMode(mode) {
     db.ref("/device/inkubator_1/mode").set(mode)
-        .then(() => showTemporaryNotification(`Mode diubah ke ${mode.toUpperCase()}`, "success"))
+        .then(() => { pushSystemLog("change_mode", { mode: mode.toUpperCase() }); showTemporaryNotification(`Mode diubah ke ${mode.toUpperCase()}`, "success"); })
         .catch(() => showTemporaryNotification("Gagal mengubah mode!", "error"));
 }
 
 function setRelay(relay, value) {
     db.ref("/device/inkubator_1/relay/" + relay).set(value)
-        .then(() => showTemporaryNotification(`Relay ${relay} ${value ? 'ON' : 'OFF'}`, "success"))
+        .then(() => { pushSystemLog("relay_control", { relay, state: value ? "ON" : "OFF" }); showTemporaryNotification(`Relay ${relay} ${value ? "ON" : "OFF"}`, "success"); })
         .catch(() => showTemporaryNotification(`Gagal mengontrol ${relay}!`, "error"));
 }
 
-function saveSprayerSchedule() {
-    const durasi = parseInt(document.getElementById("sprayerDurasi").value);
-    if (durasi < 1 || durasi > 60) {
-        showTemporaryNotification("Durasi harus 1-60 detik!", "error");
-        return;
-    }
-    const validTimes = scheduleTimes.filter(t => t && t.trim() !== "");
-    if (validTimes.length === 0) {
-        showTemporaryNotification("Setidaknya satu jadwal harus diisi!", "error");
-        return;
-    }
-    Promise.all([
-        db.ref("/device/inkubator_1/manual/sprayer_times").set(validTimes),
-        db.ref("/device/inkubator_1/manual/sprayer_duration").set(durasi)
-    ]).then(() => {
-        showTemporaryNotification("Jadwal sprayer tersimpan!", "success");
-    }).catch(() => showTemporaryNotification("Gagal menyimpan jadwal!", "error"));
+function startAutoScheduler() {
+    if (autoSchedulerInterval) clearInterval(autoSchedulerInterval);
+    runAutoSchedulerTick();
+    autoSchedulerInterval = setInterval(runAutoSchedulerTick, 15000);
 }
 
-// ==================== UI UPDATE FUNCTIONS ====================
-function updateTemperatureUI(suhu) {
-    const el = document.getElementById("temperatureValue");
-    const progressEl = document.getElementById("tempProgress");
-    if (el) el.textContent = suhu.toFixed(1);
-    if (progressEl) progressEl.style.width = Math.min((suhu / 50) * 100, 100) + "%";
+function runAutoSchedulerTick() {
+    if (currentMode !== "auto" || !currentPlant) return;
+    const startDate = currentPlant.wateringStartDate || document.getElementById("sprayerStartDate").value;
+    if (!startDate || todayDate() < startDate) return;
 
-    if (!currentPlant) {
-        const min = parseInt(document.getElementById("minTemp").value || 26);
-        const max = parseInt(document.getElementById("maxTemp").value || 33);
-        const statusEl = document.getElementById("temperatureStatus");
-        if (statusEl) {
-            if (suhu < min) {
-                statusEl.innerHTML = '<i class="fas fa-thermometer-empty"></i> Terlalu Rendah';
-                statusEl.style.color = "#2196f3";
-            } else if (suhu > max) {
-                statusEl.innerHTML = '<i class="fas fa-thermometer-full"></i> Terlalu Tinggi';
-                statusEl.style.color = "#f44336";
-            } else {
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Optimal';
-                statusEl.style.color = "#4caf50";
-            }
-        }
-    }
+    const now = new Date();
+    const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const times = normalizeTimes(currentPlant.wateringTimes || []);
+    if (!times.includes(currentTime)) return;
+
+    const minuteKey = `${todayDate()}_${currentPlant.id}_${currentTime}`;
+    if (lastAutoSprayMinuteKey === minuteKey) return;
+    lastAutoSprayMinuteKey = minuteKey;
+    triggerAutoSprayer(currentPlant.wateringDuration || 5, currentPlant.name, currentTime);
+}
+
+function triggerAutoSprayer(duration, plantName, scheduleTime) {
+    db.ref("/device/inkubator_1/relay/sprayer").set(true)
+        .then(() => {
+            pushSystemLog("auto_sprayer_triggered", { plantName, triggerTime: scheduleTime, duration: `${duration}s` });
+            setTimeout(() => db.ref("/device/inkubator_1/relay/sprayer").set(false), duration * 1000);
+        })
+        .catch(() => showTemporaryNotification("Gagal trigger sprayer otomatis", "error"));
+}
+
+function updateTemperatureUI(suhu) {
+    document.getElementById("temperatureValue").textContent = suhu.toFixed(1);
+    document.getElementById("tempProgress").style.width = Math.min((suhu / 50) * 100, 100) + "%";
 }
 
 function updateHumidityUI(hum) {
-    const el = document.getElementById("humidityValue");
-    const progressEl = document.getElementById("humProgress");
-    if (el) el.textContent = hum.toFixed(1);
-    if (progressEl) progressEl.style.width = hum + "%";
-
-    if (!currentPlant) {
-        const statusEl = document.getElementById("humidityStatus");
-        if (statusEl) {
-            if (hum < 40) {
-                statusEl.innerHTML = '<i class="fas fa-tint"></i> Terlalu Kering';
-                statusEl.style.color = "#ff9800";
-            } else if (hum > 80) {
-                statusEl.innerHTML = '<i class="fas fa-tint"></i> Terlalu Lembab';
-                statusEl.style.color = "#2196f3";
-            } else {
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Optimal';
-                statusEl.style.color = "#4caf50";
-            }
-        }
-    }
+    document.getElementById("humidityValue").textContent = hum.toFixed(1);
+    document.getElementById("humProgress").style.width = hum + "%";
 }
 
 function updateRelayUI(relay, status) {
@@ -646,22 +586,14 @@ function updateRelayUI(relay, status) {
     if (stateEl) {
         stateEl.textContent = status === 1 ? "ON" : "OFF";
         stateEl.style.color = status === 1 ? "#4caf50" : "#ff5252";
-        if (toggleEl) toggleEl.checked = status === 1;
     }
+    if (toggleEl) toggleEl.checked = status === 1;
 
-    // Countdown untuk sprayer
     if (relay === "sprayer") {
         if (status === 1) {
-            let duration = 5;
-            if (currentMode === "manual") {
-                duration = parseInt(document.getElementById("sprayerDurasi").value) || 5;
-            } else {
-                duration = currentPlant?.wateringDuration || 5;
-            }
+            const duration = currentMode === "manual" ? (parseInt(document.getElementById("sprayerDurasi").value, 10) || 5) : (currentPlant?.wateringDuration || 5);
             startSprayerCountdown(duration);
-        } else {
-            stopSprayerCountdown();
-        }
+        } else stopSprayerCountdown();
     }
 }
 
@@ -672,26 +604,23 @@ function updateLampuRelayUI(status) {
     if (stateEl) {
         stateEl.textContent = status === 1 ? "ON" : "OFF";
         stateEl.style.color = status === 1 ? "#4caf50" : "#ff5252";
-        if (toggleEl) toggleEl.checked = status === 1;
-        if (pwmToggle) pwmToggle.checked = status === 1;
     }
+    if (toggleEl) toggleEl.checked = status === 1;
+    if (pwmToggle) pwmToggle.checked = status === 1;
 }
 
 function updateBrightnessUI(brightness) {
-    const valueEl = document.getElementById("brightnessValue");
-    const sliderEl = document.getElementById("brightnessSlider");
-    if (valueEl) valueEl.textContent = brightness + "%";
-    if (sliderEl) sliderEl.value = brightness;
+    document.getElementById("brightnessValue").textContent = brightness + "%";
+    document.getElementById("brightnessSlider").value = brightness;
 }
 
 function updateLampPWMStatus() {
     db.ref("/device/inkubator_1/relay/lamp").once("value", (snap) => {
         const status = snap.val();
         const lampStatus = document.getElementById("lampPWMStatus");
-        if (lampStatus) {
-            lampStatus.textContent = status ? "ON" : "OFF";
-            lampStatus.style.color = status ? "#4caf50" : "#ff5252";
-        }
+        if (!lampStatus) return;
+        lampStatus.textContent = status ? "ON" : "OFF";
+        lampStatus.style.color = status ? "#4caf50" : "#ff5252";
     });
 }
 
@@ -703,92 +632,48 @@ function updateModeUI(mode) {
     if (mode === "auto") {
         autoBtn.classList.add("active");
         manualBtn.classList.remove("active");
-        if (modeBadge) {
-            modeBadge.textContent = "AUTO";
-            modeBadge.style.background = "#4caf50";
-        }
-        // Disable manual controls
-        document.getElementById("kipasToggle").disabled = true;
-        document.getElementById("sprayerToggle").disabled = true;
-        document.getElementById("lampuRelayToggle").disabled = true;
-        document.getElementById("lampPWMToggle").disabled = true;
-        document.getElementById("brightnessSlider").disabled = true;
+        modeBadge.textContent = "AUTO";
+        modeBadge.style.background = "#4caf50";
     } else {
         autoBtn.classList.remove("active");
         manualBtn.classList.add("active");
-        if (modeBadge) {
-            modeBadge.textContent = "MANUAL";
-            modeBadge.style.background = "#9c27b0";
-        }
-        document.getElementById("kipasToggle").disabled = false;
-        document.getElementById("sprayerToggle").disabled = false;
-        document.getElementById("lampuRelayToggle").disabled = false;
-        document.getElementById("lampPWMToggle").disabled = false;
-        document.getElementById("brightnessSlider").disabled = false;
+        modeBadge.textContent = "MANUAL";
+        modeBadge.style.background = "#9c27b0";
     }
 
-    // Disable/enable jadwal sprayer sesuai mode
-    const timeInputs = document.querySelectorAll(".schedule-time-input");
-    const removeBtns = document.querySelectorAll(".remove-time");
-    const addBtn = document.getElementById("addScheduleBtn");
-    const durasiInput = document.getElementById("sprayerDurasi");
-
-    if (mode === "auto") {
-        timeInputs.forEach(inp => inp.disabled = true);
-        removeBtns.forEach(btn => btn.disabled = true);
-        if (addBtn) addBtn.disabled = true;
-        durasiInput.disabled = true;
-    } else {
-        timeInputs.forEach(inp => inp.disabled = false);
-        removeBtns.forEach(btn => btn.disabled = false);
-        if (addBtn) addBtn.disabled = false;
-        durasiInput.disabled = false;
-    }
-
-    // Restart countdown jika sprayer sedang ON
-    db.ref("/device/inkubator_1/relay/sprayer").once("value", (snap) => {
-        if (snap.val() === true) {
-            let duration = mode === "auto"
-                ? (currentPlant?.wateringDuration || 5)
-                : (parseInt(document.getElementById("sprayerDurasi").value) || 5);
-            startSprayerCountdown(duration);
-        }
+    const isAuto = mode === "auto";
+    ["kipasToggle", "sprayerToggle", "lampuRelayToggle", "lampPWMToggle", "brightnessSlider", "sprayerDurasi", "sprayerStartDate"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = isAuto;
     });
+    document.querySelectorAll(".schedule-time-input, .remove-time").forEach(el => el.disabled = isAuto);
+    const addBtn = document.getElementById("addScheduleBtn");
+    if (addBtn) addBtn.disabled = isAuto;
 }
 
 function updateTempRange() {
     const min = document.getElementById("minTemp").value;
     const max = document.getElementById("maxTemp").value;
-    const rangeEl = document.getElementById("tempRange");
-    if (rangeEl) rangeEl.textContent = min + "-" + max + "°C";
+    document.getElementById("tempRange").textContent = min + "-" + max + "C";
 }
 
 function updateESPStatus(online) {
     const espStatus = document.getElementById("esp32Status");
     const wifiStatus = document.getElementById("wifiStatus");
-
     espOffline = !online;
 
     if (online) {
-        if (espStatus) {
-            espStatus.textContent = "Online";
-            espStatus.className = "status-value online";
-        }
-        if (wifiStatus) {
-            wifiStatus.textContent = "Terhubung";
-            wifiStatus.className = "status-value online";
-        }
+        espStatus.textContent = "Online";
+        espStatus.className = "status-value online";
+        wifiStatus.textContent = "Terhubung";
+        wifiStatus.className = "status-value online";
         hideBanner();
     } else {
-        if (espStatus) {
-            espStatus.textContent = "Offline";
-            espStatus.className = "status-value offline";
-        }
-        if (wifiStatus) {
-            wifiStatus.textContent = "Terputus";
-            wifiStatus.className = "status-value offline";
-        }
-        showBanner("⚠️ ESP32 tidak terhubung! Periksa koneksi perangkat.", "error");
+        espStatus.textContent = "Offline";
+        espStatus.className = "status-value offline";
+        wifiStatus.textContent = "Terputus";
+        wifiStatus.className = "status-value offline";
+        showBanner("ESP32 tidak terhubung! Periksa koneksi perangkat.", "error");
     }
 }
 
@@ -797,181 +682,182 @@ function updateConnectionStatus(connected) {
     const connectionDot = document.getElementById("connectionDot");
     const firebaseStatus = document.getElementById("firebaseStatus");
     const streamStatus = document.getElementById("streamStatus");
-
     if (connected) {
-        if (connectionText) connectionText.textContent = "Terhubung ke Firebase";
-        if (connectionDot) connectionDot.className = "status-dot connected";
-        if (firebaseStatus) {
-            firebaseStatus.textContent = "Aktif";
-            firebaseStatus.className = "status-value online";
-        }
-        if (streamStatus) {
-            streamStatus.textContent = "Aktif";
-            streamStatus.className = "status-value online";
-        }
+        connectionText.textContent = "Terhubung ke Firebase";
+        connectionDot.className = "status-dot connected";
+        firebaseStatus.textContent = "Aktif";
+        firebaseStatus.className = "status-value online";
+        streamStatus.textContent = "Aktif";
+        streamStatus.className = "status-value online";
     } else {
-        if (connectionText) connectionText.textContent = "Terputus dari Firebase";
-        if (connectionDot) connectionDot.className = "status-dot";
-        if (firebaseStatus) {
-            firebaseStatus.textContent = "Offline";
-            firebaseStatus.className = "status-value offline";
-        }
-        if (streamStatus) {
-            streamStatus.textContent = "Offline";
-            streamStatus.className = "status-value offline";
-        }
+        connectionText.textContent = "Terputus dari Firebase";
+        connectionDot.className = "status-dot";
+        firebaseStatus.textContent = "Offline";
+        firebaseStatus.className = "status-value offline";
+        streamStatus.textContent = "Offline";
+        streamStatus.className = "status-value offline";
     }
 }
 
 function updateTime() {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("id-ID");
-    const updateEl = document.getElementById("sensorUpdateTime");
-    if (updateEl) updateEl.textContent = timeStr;
-    const lastUpdate = document.getElementById("lastUpdate");
-    if (lastUpdate) {
-        lastUpdate.innerHTML = `<i class="fas fa-clock"></i><span>Terakhir update: ${timeStr}</span>`;
-    }
+    const timeStr = new Date().toLocaleTimeString("id-ID");
+    document.getElementById("sensorUpdateTime").textContent = timeStr;
+    document.getElementById("lastUpdate").innerHTML = `<i class="fas fa-clock"></i><span>Terakhir update: ${timeStr}</span>`;
 }
 
 function updatePlantStatusIndicators() {
     if (!currentPlant) return;
-    const suhu = parseFloat(document.getElementById("temperatureValue")?.textContent);
-    const hum = parseFloat(document.getElementById("humidityValue")?.textContent);
-    if (isNaN(suhu) || isNaN(hum)) return;
-
-    const tempStatus = document.getElementById("temperatureStatus");
-    const humStatus = document.getElementById("humidityStatus");
-
-    if (tempStatus) {
-        if (suhu < currentPlant.tempMin) {
-            tempStatus.innerHTML = `<i class="fas fa-thermometer-empty"></i> Terlalu rendah untuk ${currentPlant.name}`;
-            tempStatus.style.color = "#2196f3";
-        } else if (suhu > currentPlant.tempMax) {
-            tempStatus.innerHTML = `<i class="fas fa-thermometer-full"></i> Terlalu tinggi untuk ${currentPlant.name}`;
-            tempStatus.style.color = "#ff5252";
-        } else {
-            tempStatus.innerHTML = `<i class="fas fa-check-circle"></i> Optimal untuk ${currentPlant.name}`;
-            tempStatus.style.color = "#4caf50";
-        }
-    }
-
-    if (humStatus) {
-        if (hum < 40) {
-            humStatus.innerHTML = `<i class="fas fa-tint"></i> Terlalu kering untuk ${currentPlant.name}`;
-            humStatus.style.color = "#ff9800";
-        } else if (hum > 80) {
-            humStatus.innerHTML = `<i class="fas fa-tint"></i> Terlalu lembab untuk ${currentPlant.name}`;
-            humStatus.style.color = "#2196f3";
-        } else {
-            humStatus.innerHTML = `<i class="fas fa-check-circle"></i> Optimal untuk ${currentPlant.name}`;
-            humStatus.style.color = "#4caf50";
-        }
-    }
 }
 
-// ==================== NOTIFICATION BANNER ====================
+function saveAppliedPlantHistory(plant) {
+    db.ref("/device/inkubator_1/applied_plants_history").push({
+        timestamp: Date.now(),
+        date: todayDate(),
+        plantId: plant.id,
+        plantName: plant.name,
+        startDate: plant.wateringStartDate || todayDate(),
+        duration: plant.wateringDuration,
+        times: plant.wateringTimes || []
+    });
+}
+
+function pushSystemLog(action, details = {}) {
+    db.ref("/device/inkubator_1/system_activity_logs").push({
+        timestamp: Date.now(),
+        date: todayDate(),
+        action,
+        details,
+        mode: currentMode
+    });
+}
+
+function renderActivePlantOverview() {
+    const emptyEl = document.getElementById("activePlantEmpty");
+    const contentEl = document.getElementById("activePlantContent");
+    const titleEl = document.getElementById("activePlantTitle");
+    const metaEl = document.getElementById("activePlantMeta");
+    const settingsEl = document.getElementById("activePlantSettings");
+    const systemsEl = document.getElementById("activePlantSystems");
+    if (!emptyEl || !contentEl || !titleEl || !metaEl || !settingsEl || !systemsEl) return;
+
+    if (!currentPlant || activePlantClosed) {
+        contentEl.style.display = "none";
+        emptyEl.style.display = "block";
+        emptyEl.textContent = "Belum ada tumbuhan aktif.";
+        return;
+    }
+
+    emptyEl.style.display = "none";
+    contentEl.style.display = "block";
+    titleEl.textContent = currentPlant.name || "Tanaman Aktif";
+    metaEl.textContent = `Mulai: ${formatDate(currentPlant.wateringStartDate)} | Jam: ${(currentPlant.wateringTimes || []).join(", ")}`;
+
+    const settings = [
+        `Suhu ${currentPlant.tempMin}C - ${currentPlant.tempMax}C`,
+        `Durasi Sprayer ${currentPlant.wateringDuration}s`,
+        `Lampu ${currentPlant.lightPWM}%`,
+        `Mode ${String(currentMode).toUpperCase()}`
+    ];
+    settingsEl.innerHTML = settings.map((x) => `<span class="active-plant-pill">${x}</span>`).join("");
+
+    const systems = [
+        `Kipas ${deviceState.fan ? "ON" : "OFF"}`,
+        `Sprayer ${deviceState.sprayer ? "ON" : "OFF"}`,
+        `Lampu ${deviceState.lamp ? "ON" : "OFF"}`
+    ];
+    systemsEl.innerHTML = systems.map((x) => `<span class="active-plant-pill">${x}</span>`).join("");
+}
+
+function finishActivePlant() {
+    if (!currentPlant) return;
+    const finishedName = currentPlant.name;
+    activePlantClosed = true;
+    db.ref("/device/inkubator_1/active_plant").set("");
+    pushSystemLog("finish_active_plant", { plantName: finishedName });
+    renderActivePlantOverview();
+    showTemporaryNotification(`Tumbuhan ${finishedName} selesai`, "success");
+}
+
+function summarizeDetails(details) {
+    if (!details || typeof details !== "object") return "-";
+    return Object.entries(details).map(([k, v]) => `${k}: ${v}`).join(" | ");
+}
+
 function showBanner(message, type = "error") {
     const banner = document.getElementById("notificationBanner");
     const bannerMessage = document.getElementById("bannerMessage");
     if (!banner || !bannerMessage) return;
-
     bannerMessage.textContent = message;
     banner.className = "notification-banner " + type;
     banner.style.display = "block";
 }
-
-function hideBanner() {
-    const banner = document.getElementById("notificationBanner");
-    if (banner) banner.style.display = "none";
-}
+function hideBanner() { const banner = document.getElementById("notificationBanner"); if (banner) banner.style.display = "none"; }
 
 function showTemporaryNotification(message, type = "info", timeout = 3000) {
-    if (!espOffline) {
-        showBanner(message, type);
-        setTimeout(hideBanner, timeout);
-    } else {
-        showToast(message, type);
-    }
+    if (!espOffline) { showBanner(message, type); setTimeout(hideBanner, timeout); }
+    else showToast(message, type);
 }
 
-// ==================== TOAST ====================
 function showToast(message, type = "success") {
     const existing = document.querySelector(".toast-incubator");
     if (existing) existing.remove();
-
     const toast = document.createElement("div");
     toast.className = "toast-incubator";
-    toast.style.cssText = `
-        position: fixed;
-        top: 30px;
-        right: 30px;
-        padding: 15px 25px;
-        background: ${type === "success" ? "#4caf50" : type === "error" ? "#f44336" : "#ff9800"};
-        color: white;
-        border-radius: 10px;
-        font-weight: 500;
-        z-index: 3000;
-        animation: slideInRight 0.3s ease;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    `;
+    toast.style.cssText = `position: fixed; top: 30px; right: 30px; padding: 15px 25px; background: ${type === "success" ? "#4caf50" : type === "error" ? "#f44336" : "#ff9800"}; color: white; border-radius: 10px; font-weight: 500; z-index: 3000; animation: slideInRight 0.3s ease; box-shadow: 0 5px 20px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 10px;`;
     const icon = type === "success" ? "fa-check-circle" : type === "error" ? "fa-exclamation-circle" : "fa-exclamation-triangle";
     toast.innerHTML = `<i class="fas ${icon}"></i><span>${message}</span>`;
     document.body.appendChild(toast);
-
-    setTimeout(() => {
-        toast.style.animation = "slideOutRight 0.3s ease";
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    setTimeout(() => { toast.style.animation = "slideOutRight 0.3s ease"; setTimeout(() => toast.remove(), 300); }, 3000);
 }
 
-// Animations
 const style = document.createElement("style");
-style.textContent = `
-    @keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    @keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
-`;
+style.textContent = "@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }";
 document.head.appendChild(style);
 
-// ==================== COUNTDOWN SPRAYER ====================
 function startSprayerCountdown(durationSeconds) {
     if (countdownInterval) clearInterval(countdownInterval);
-
-    const endTime = Date.now() + durationSeconds * 1000;
-    sprayerEndTime = endTime;
-
+    sprayerEndTime = Date.now() + durationSeconds * 1000;
     const countdownEl = document.getElementById("sprayerCountdown");
     const timeEl = document.getElementById("countdownTime");
     if (!countdownEl || !timeEl) return;
-
     countdownEl.style.display = "flex";
-
     countdownInterval = setInterval(() => {
         const remaining = Math.max(0, Math.floor((sprayerEndTime - Date.now()) / 1000));
         timeEl.textContent = remaining + "s";
-
         if (remaining <= 0) {
             clearInterval(countdownInterval);
             countdownInterval = null;
-            countdownEl.style.display = 'none';
-
-            // Matikan relay sprayer setelah countdown selesai (hanya jika mode manual)
-            if (currentMode === 'manual') {
-                setRelay('sprayer', false);
-            }
-            // Jika mode auto, biarkan perangkat yang mengontrol sesuai jadwal
+            countdownEl.style.display = "none";
+            if (currentMode === "manual") setRelay("sprayer", false);
         }
-    });
+    }, 1000);
 }
 
 function stopSprayerCountdown() {
-    if (countdownInterval) {
-        clearInterval(countdownInterval);
-        countdownInterval = null;
-    }
+    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
     const countdownEl = document.getElementById("sprayerCountdown");
     if (countdownEl) countdownEl.style.display = "none";
 }
+
+function checkESPConnection() {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (lastSeenTime > 0) updateESPStatus(nowSec - lastSeenTime <= 20);
+    else updateESPStatus((Date.now() - lastSensorTime) <= 20000);
+}
+
+function todayDate() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function formatDate(value) {
+    if (!value) return "-";
+    const dt = new Date(value + "T00:00:00");
+    return dt.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatDateTime(timestamp) {
+    if (!timestamp) return "-";
+    return new Date(timestamp).toLocaleString("id-ID");
+}
+
