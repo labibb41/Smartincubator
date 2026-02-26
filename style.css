@@ -1255,7 +1255,9 @@ input:checked + .power-slider:before {
 }
 
 .form-group input[type="text"],
-.form-group input[type="number"] {
+.form-group input[type="number"],
+.form-group input[type="time"],
+.form-group input[type="date"] {
     width: 100%;
     padding: 12px;
     border: 2px solid #e8f5e9;
@@ -1700,4 +1702,23 @@ input:checked + .power-slider:before {
 .active-plant-actions {
     display: flex;
     justify-content: flex-end;
+}
+
+.day-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.day-checkboxes label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #ffffff;
+    border: 1px solid #d7ebd0;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    color: #2d5a27;
+    font-weight: 600;
 }
