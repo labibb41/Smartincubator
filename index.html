@@ -217,8 +217,32 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="customStartDate">Mulai Penyiraman (Tanggal)</label>
-                                    <input type="date" id="customStartDate">
+                                    <label for="customLightStartDate">Mulai Penyinaran (Tanggal)</label>
+                                    <input type="date" id="customLightStartDate">
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="customLightStartTime">Jam Mulai Lampu</label>
+                                        <input type="time" id="customLightStartTime" value="06:00">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="customLightEndTime">Jam Selesai Lampu</label>
+                                        <input type="time" id="customLightEndTime" value="17:00">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Hari Penyinaran Aktif</label>
+                                    <div class="day-checkboxes" id="customLightDays">
+                                        <label><input type="checkbox" value="1" checked> Sen</label>
+                                        <label><input type="checkbox" value="2" checked> Sel</label>
+                                        <label><input type="checkbox" value="3" checked> Rab</label>
+                                        <label><input type="checkbox" value="4" checked> Kam</label>
+                                        <label><input type="checkbox" value="5" checked> Jum</label>
+                                        <label><input type="checkbox" value="6" checked> Sab</label>
+                                        <label><input type="checkbox" value="0" checked> Min</label>
+                                    </div>
                                 </div>
 
                                 <div class="form-group">
@@ -474,11 +498,22 @@
 
                     <div class="schedule-item">
                         <div class="schedule-label">
-                            <i class="fas fa-calendar-day"></i>
-                            <span>Tanggal Mulai Penyiraman</span>
+                            <i class="fas fa-sun"></i>
+                            <span>Jadwal Penyinaran Lampu</span>
                         </div>
                         <div class="schedule-input">
-                            <input type="date" id="sprayerStartDate">
+                            <input type="date" id="lampStartDate">
+                            <input type="time" id="lampStartTime" value="06:00">
+                            <input type="time" id="lampEndTime" value="17:00">
+                        </div>
+                        <div class="day-checkboxes" id="lampActiveDays" style="margin-top:12px;">
+                            <label><input type="checkbox" value="1" checked> Sen</label>
+                            <label><input type="checkbox" value="2" checked> Sel</label>
+                            <label><input type="checkbox" value="3" checked> Rab</label>
+                            <label><input type="checkbox" value="4" checked> Kam</label>
+                            <label><input type="checkbox" value="5" checked> Jum</label>
+                            <label><input type="checkbox" value="6" checked> Sab</label>
+                            <label><input type="checkbox" value="0" checked> Min</label>
                         </div>
                     </div>
 
