@@ -39,8 +39,14 @@ function initUI() {
     document.getElementById("minTemp").value = 26;
     document.getElementById("maxTemp").value = 33;
     document.getElementById("sprayerDurasi").value = 5;
-    document.getElementById("sprayerStartDate").value = todayDate();
-    document.getElementById("customStartDate").value = todayDate();
+    document.getElementById("lampStartDate").value = todayDate();
+    document.getElementById("lampStartTime").value = "06:00";
+    document.getElementById("lampEndTime").value = "17:00";
+    document.getElementById("customLightStartDate").value = todayDate();
+    document.getElementById("customLightStartTime").value = "06:00";
+    document.getElementById("customLightEndTime").value = "17:00";
+    setSelectedDays("lampActiveDays", [0, 1, 2, 3, 4, 5, 6]);
+    setSelectedDays("customLightDays", [0, 1, 2, 3, 4, 5, 6]);
 
     const brightnessSlider = document.getElementById("brightnessSlider");
     const brightnessValue = document.getElementById("brightnessValue");
@@ -119,9 +125,14 @@ function initFirebaseListeners() {
         if (durasi !== null) document.getElementById("sprayerDurasi").value = durasi;
     });
 
-    db.ref("/device/inkubator_1/manual/sprayer_start_date").on("value", (snapshot) => {
-        const startDate = snapshot.val();
-        if (startDate) document.getElementById("sprayerStartDate").value = startDate;
+    db.ref("/device/inkubator_1/manual/light_schedule").on("value", (snapshot) => {
+        const schedule = snapshot.val() || {};
+        if (schedule.start_date) document.getElementById("lampStartDate").value = schedule.start_date;
+        if (schedule.start_time) document.getElementById("lampStartTime").value = schedule.start_time;
+        if (schedule.end_time) document.getElementById("lampEndTime").value = schedule.end_time;
+        if (Array.isArray(schedule.days)) {
+            setSelectedDays("lampActiveDays", schedule.days);
+        }
     });
 
     db.ref("/device/inkubator_1/last_seen").on("value", (snapshot) => {
@@ -187,7 +198,10 @@ function selectPlantById(plantId) {
         lightPWM: plant.light_pwm || 60,
         wateringDuration: plant.watering?.duration || 10,
         wateringTimes: times,
-        wateringStartDate: plant.watering?.start_date || todayDate(),
+        lightStartDate: plant.lighting?.start_date || todayDate(),
+        lightStartTime: plant.lighting?.start_time || "06:00",
+        lightEndTime: plant.lighting?.end_time || "17:00",
+        lightDays: Array.isArray(plant.lighting?.days) ? plant.lighting.days : [0,1,2,3,4,5,6],
         auto: plant.auto !== false
     };
 
@@ -202,7 +216,10 @@ function selectPlantById(plantId) {
     scheduleTimes = [...currentPlant.wateringTimes];
     renderScheduleList(scheduleTimes);
     document.getElementById("sprayerDurasi").value = currentPlant.wateringDuration;
-    document.getElementById("sprayerStartDate").value = currentPlant.wateringStartDate || todayDate();
+    document.getElementById("lampStartDate").value = currentPlant.lightStartDate || todayDate();
+    document.getElementById("lampStartTime").value = currentPlant.lightStartTime || "06:00";
+    document.getElementById("lampEndTime").value = currentPlant.lightEndTime || "17:00";
+    setSelectedDays("lampActiveDays", currentPlant.lightDays || [0,1,2,3,4,5,6]);
 
     hideCustomPlantForm();
     showPlantActions();
@@ -211,7 +228,7 @@ function selectPlantById(plantId) {
 
 function updatePlantInfo(plant) {
     document.querySelector(".plant-name").textContent = plant.name;
-    document.querySelector(".plant-status").textContent = `Aktif mulai ${formatDate(plant.wateringStartDate)} | ${plant.wateringTimes.join(", ")}`;
+    document.querySelector(".plant-status").textContent = `Siram: ${plant.wateringTimes.join(", ")} | Lampu: ${plant.lightStartTime}-${plant.lightEndTime}`;
     document.getElementById("tempRequirement").textContent = `${plant.tempMin}C - ${plant.tempMax}C`;
     document.getElementById("tempReqRange").textContent = `Min: ${plant.tempMin}C, Max: ${plant.tempMax}C`;
     const midTemp = (plant.tempMin + plant.tempMax) / 2;
@@ -236,7 +253,10 @@ function showCustomPlantForm() {
     document.getElementById("customLightValue").textContent = "60%";
     document.getElementById("customDuration").value = "10";
     document.getElementById("customAuto").checked = true;
-    document.getElementById("customStartDate").value = todayDate();
+    document.getElementById("customLightStartDate").value = todayDate();
+    document.getElementById("customLightStartTime").value = "06:00";
+    document.getElementById("customLightEndTime").value = "17:00";
+    setSelectedDays("customLightDays", [0,1,2,3,4,5,6]);
     customScheduleTimes = ["08:00", "15:00"];
     renderCustomScheduleList(customScheduleTimes);
     document.getElementById("plantCustomForm").style.display = "block";
@@ -252,13 +272,18 @@ function saveCustomPlant() {
     const lightPWM = parseInt(document.getElementById("customLightPWM").value, 10);
     const duration = parseInt(document.getElementById("customDuration").value, 10);
     const auto = document.getElementById("customAuto").checked;
-    const startDate = document.getElementById("customStartDate").value;
+    const lightStartDate = document.getElementById("customLightStartDate").value;
+    const lightStartTime = document.getElementById("customLightStartTime").value;
+    const lightEndTime = document.getElementById("customLightEndTime").value;
+    const lightDays = getSelectedDays("customLightDays");
     const times = getCustomScheduleTimes();
 
     if (!name) return showTemporaryNotification("Masukkan nama tanaman!", "error");
     if (minTemp >= maxTemp) return showTemporaryNotification("Suhu minimum harus kurang dari maksimum!", "error");
     if (duration < 1 || duration > 60) return showTemporaryNotification("Durasi harus 1-60 detik!", "error");
-    if (!startDate) return showTemporaryNotification("Pilih tanggal mulai penyiraman!", "error");
+    if (!lightStartDate) return showTemporaryNotification("Pilih tanggal mulai penyinaran!", "error");
+    if (!lightStartTime || !lightEndTime) return showTemporaryNotification("Jam penyinaran belum lengkap!", "error");
+    if (lightDays.length === 0) return showTemporaryNotification("Pilih minimal 1 hari penyinaran!", "error");
     if (times.length === 0) return showTemporaryNotification("Tambahkan minimal 1 jam penyiraman!", "error");
 
     const plantData = {
@@ -268,7 +293,13 @@ function saveCustomPlant() {
         light_pwm: lightPWM,
         par_target: 200,
         temp_optimal: { min: minTemp, max: maxTemp },
-        watering: { duration, start_date: startDate, times }
+        watering: { duration, times },
+        lighting: {
+            start_date: lightStartDate,
+            start_time: lightStartTime,
+            end_time: lightEndTime,
+            days: lightDays
+        }
     };
 
     if (editingPlantId) {
@@ -312,24 +343,32 @@ function applyPlantSettings() {
     scheduleTimes = [...currentPlant.wateringTimes];
     renderScheduleList(scheduleTimes);
     document.getElementById("sprayerDurasi").value = currentPlant.wateringDuration;
-    document.getElementById("sprayerStartDate").value = currentPlant.wateringStartDate || todayDate();
+    document.getElementById("lampStartDate").value = currentPlant.lightStartDate || todayDate();
+    document.getElementById("lampStartTime").value = currentPlant.lightStartTime || "06:00";
+    document.getElementById("lampEndTime").value = currentPlant.lightEndTime || "17:00";
+    setSelectedDays("lampActiveDays", currentPlant.lightDays || [0,1,2,3,4,5,6]);
 
     const payload = {
         active_plant_id: currentPlant.id,
-        start_date: currentPlant.wateringStartDate || todayDate(),
         times: scheduleTimes,
-        duration: currentPlant.wateringDuration
+        duration: currentPlant.wateringDuration,
+        light_schedule: {
+            start_date: currentPlant.lightStartDate || todayDate(),
+            start_time: currentPlant.lightStartTime || "06:00",
+            end_time: currentPlant.lightEndTime || "17:00",
+            days: currentPlant.lightDays || [0,1,2,3,4,5,6]
+        }
     };
 
     Promise.all([
         db.ref("/device/inkubator_1/lamp_pwm").set(currentPlant.lightPWM),
         db.ref("/device/inkubator_1/manual/sprayer_times").set(scheduleTimes),
         db.ref("/device/inkubator_1/manual/sprayer_duration").set(currentPlant.wateringDuration),
-        db.ref("/device/inkubator_1/manual/sprayer_start_date").set(payload.start_date),
+        db.ref("/device/inkubator_1/manual/light_schedule").set(payload.light_schedule),
         db.ref("/device/inkubator_1/auto_schedule").set(payload)
     ]).then(() => {
         saveAppliedPlantHistory(currentPlant);
-        pushSystemLog("apply_plant_settings", { plantName: currentPlant.name, times: scheduleTimes.join(", "), startDate: payload.start_date });
+        pushSystemLog("apply_plant_settings", { plantName: currentPlant.name, wateringTimes: scheduleTimes.join(", "), light: `${payload.light_schedule.start_time}-${payload.light_schedule.end_time}` });
         activePlantClosed = false;
         renderActivePlantOverview();
         showTemporaryNotification(`Pengaturan ${currentPlant.name} diterapkan`, "success");
@@ -378,7 +417,10 @@ function editPlant() {
     document.getElementById("customLightValue").textContent = currentPlant.lightPWM + "%";
     document.getElementById("customDuration").value = currentPlant.wateringDuration;
     document.getElementById("customAuto").checked = currentPlant.auto;
-    document.getElementById("customStartDate").value = currentPlant.wateringStartDate || todayDate();
+    document.getElementById("customLightStartDate").value = currentPlant.lightStartDate || todayDate();
+    document.getElementById("customLightStartTime").value = currentPlant.lightStartTime || "06:00";
+    document.getElementById("customLightEndTime").value = currentPlant.lightEndTime || "17:00";
+    setSelectedDays("customLightDays", currentPlant.lightDays || [0,1,2,3,4,5,6]);
     customScheduleTimes = normalizeTimes(currentPlant.wateringTimes || []);
     renderCustomScheduleList(customScheduleTimes);
 
@@ -462,14 +504,40 @@ function normalizeTimes(times) {
     return uniq.sort();
 }
 
+function getSelectedDays(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return [];
+
+    const values = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+        .map((el) => parseInt(el.value, 10))
+        .filter((n) => !Number.isNaN(n));
+
+    return values;
+}
+
+function setSelectedDays(containerId, days) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const selected = Array.isArray(days) ? days.map((d) => parseInt(d, 10)) : [0, 1, 2, 3, 4, 5, 6];
+
+    container.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+        const value = parseInt(checkbox.value, 10);
+        checkbox.checked = selected.includes(value);
+    });
+}
+
 function saveSprayerSchedule() {
     const durasi = parseInt(document.getElementById("sprayerDurasi").value, 10);
-    const startDate = document.getElementById("sprayerStartDate").value;
+    const lightStartDate = document.getElementById("lampStartDate").value;
+    const lightStartTime = document.getElementById("lampStartTime").value;
+    const lightEndTime = document.getElementById("lampEndTime").value;
+    const lightDays = getSelectedDays("lampActiveDays");
     const validTimes = normalizeTimes(scheduleTimes);
 
     if (durasi < 1 || durasi > 60) return showTemporaryNotification("Durasi harus 1-60 detik!", "error");
-    if (!startDate) return showTemporaryNotification("Pilih tanggal mulai penyiraman!", "error");
     if (validTimes.length === 0) return showTemporaryNotification("Setidaknya satu jadwal harus diisi!", "error");
+    if (!lightStartDate || !lightStartTime || !lightEndTime) return showTemporaryNotification("Pengaturan penyinaran belum lengkap!", "error");
+    if (lightDays.length === 0) return showTemporaryNotification("Pilih minimal 1 hari penyinaran!", "error");
 
     scheduleTimes = validTimes;
     renderScheduleList(scheduleTimes);
@@ -477,9 +545,21 @@ function saveSprayerSchedule() {
     Promise.all([
         db.ref("/device/inkubator_1/manual/sprayer_times").set(scheduleTimes),
         db.ref("/device/inkubator_1/manual/sprayer_duration").set(durasi),
-        db.ref("/device/inkubator_1/manual/sprayer_start_date").set(startDate)
+        db.ref("/device/inkubator_1/manual/light_schedule").set({
+            start_date: lightStartDate,
+            start_time: lightStartTime,
+            end_time: lightEndTime,
+            days: lightDays
+        })
     ]).then(() => {
-        pushSystemLog("save_sprayer_schedule", { startDate, duration: durasi, times: scheduleTimes.join(", ") });
+        if (currentPlant) {
+            currentPlant.lightStartDate = lightStartDate;
+            currentPlant.lightStartTime = lightStartTime;
+            currentPlant.lightEndTime = lightEndTime;
+            currentPlant.lightDays = lightDays;
+            renderActivePlantOverview();
+        }
+        pushSystemLog("save_schedule", { duration: durasi, wateringTimes: scheduleTimes.join(", "), light: `${lightStartTime}-${lightEndTime}` });
         showTemporaryNotification("Jadwal sprayer tersimpan!", "success");
     }).catch(() => showTemporaryNotification("Gagal menyimpan jadwal!", "error"));
 }
@@ -547,18 +627,22 @@ function startAutoScheduler() {
 
 function runAutoSchedulerTick() {
     if (currentMode !== "auto" || !currentPlant) return;
-    const startDate = currentPlant.wateringStartDate || document.getElementById("sprayerStartDate").value;
-    if (!startDate || todayDate() < startDate) return;
 
     const now = new Date();
     const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    const times = normalizeTimes(currentPlant.wateringTimes || []);
-    if (!times.includes(currentTime)) return;
 
-    const minuteKey = `${todayDate()}_${currentPlant.id}_${currentTime}`;
-    if (lastAutoSprayMinuteKey === minuteKey) return;
-    lastAutoSprayMinuteKey = minuteKey;
-    triggerAutoSprayer(currentPlant.wateringDuration || 5, currentPlant.name, currentTime);
+    // Sprayer: selalu berdasarkan jam penyiraman (tanpa tanggal mulai).
+    const times = normalizeTimes(currentPlant.wateringTimes || []);
+    if (times.includes(currentTime)) {
+        const minuteKey = `${todayDate()}_${currentPlant.id}_${currentTime}`;
+        if (lastAutoSprayMinuteKey !== minuteKey) {
+            lastAutoSprayMinuteKey = minuteKey;
+            triggerAutoSprayer(currentPlant.wateringDuration || 5, currentPlant.name, currentTime);
+        }
+    }
+
+    // Lampu: berdasarkan tanggal mulai + hari aktif + jam aktif.
+    syncLampByLightSchedule(now);
 }
 
 function triggerAutoSprayer(duration, plantName, scheduleTime) {
@@ -568,6 +652,38 @@ function triggerAutoSprayer(duration, plantName, scheduleTime) {
             setTimeout(() => db.ref("/device/inkubator_1/relay/sprayer").set(false), duration * 1000);
         })
         .catch(() => showTemporaryNotification("Gagal trigger sprayer otomatis", "error"));
+}
+
+function syncLampByLightSchedule(now) {
+    const startDate = currentPlant?.lightStartDate || document.getElementById("lampStartDate")?.value;
+    const startTime = currentPlant?.lightStartTime || document.getElementById("lampStartTime")?.value || "06:00";
+    const endTime = currentPlant?.lightEndTime || document.getElementById("lampEndTime")?.value || "17:00";
+    const days = Array.isArray(currentPlant?.lightDays) ? currentPlant.lightDays : getSelectedDays("lampActiveDays");
+
+    const day = now.getDay();
+    const today = todayDate();
+    const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    const dateReady = !!startDate && today >= startDate;
+    const dayAllowed = days.includes(day);
+    const timeAllowed = isNowWithinRange(hhmm, startTime, endTime);
+    const shouldLampOn = dateReady && dayAllowed && timeAllowed;
+
+    if (deviceState.lamp !== shouldLampOn) {
+        db.ref("/device/inkubator_1/relay/lamp").set(shouldLampOn)
+            .then(() => pushSystemLog("auto_lamp_schedule", { state: shouldLampOn ? "ON" : "OFF", time: hhmm }))
+            .catch(() => showTemporaryNotification("Gagal sinkronisasi lampu otomatis", "error"));
+    }
+}
+
+function isNowWithinRange(nowTime, startTime, endTime) {
+    if (!startTime || !endTime) return false;
+    if (startTime <= endTime) {
+        return nowTime >= startTime && nowTime < endTime;
+    }
+
+    // Handle over-midnight range.
+    return nowTime >= startTime || nowTime < endTime;
 }
 
 function updateTemperatureUI(suhu) {
@@ -642,9 +758,12 @@ function updateModeUI(mode) {
     }
 
     const isAuto = mode === "auto";
-    ["kipasToggle", "sprayerToggle", "lampuRelayToggle", "lampPWMToggle", "brightnessSlider", "sprayerDurasi", "sprayerStartDate"].forEach(id => {
+    ["kipasToggle", "sprayerToggle", "lampuRelayToggle", "lampPWMToggle", "brightnessSlider", "sprayerDurasi", "lampStartDate", "lampStartTime", "lampEndTime"].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.disabled = isAuto;
+    });
+    document.querySelectorAll("#lampActiveDays input[type='checkbox']").forEach((el) => {
+        el.disabled = isAuto;
     });
     document.querySelectorAll(".schedule-time-input, .remove-time").forEach(el => el.disabled = isAuto);
     const addBtn = document.getElementById("addScheduleBtn");
@@ -715,7 +834,9 @@ function saveAppliedPlantHistory(plant) {
         date: todayDate(),
         plantId: plant.id,
         plantName: plant.name,
-        startDate: plant.wateringStartDate || todayDate(),
+        lightStartDate: plant.lightStartDate || todayDate(),
+        lightStartTime: plant.lightStartTime || "06:00",
+        lightEndTime: plant.lightEndTime || "17:00",
         duration: plant.wateringDuration,
         times: plant.wateringTimes || []
     });
@@ -750,12 +871,13 @@ function renderActivePlantOverview() {
     emptyEl.style.display = "none";
     contentEl.style.display = "block";
     titleEl.innerHTML = `<i class="fas fa-seedling"></i> ${currentPlant.name || "Tanaman Aktif"}`;
-    metaEl.innerHTML = `<i class="fas fa-calendar-day"></i> Mulai ${formatDate(currentPlant.wateringStartDate)} <span style="margin:0 6px;">|</span> <i class="fas fa-clock"></i> ${(currentPlant.wateringTimes || []).join(", ")}`;
+    metaEl.innerHTML = `<i class="fas fa-calendar-day"></i> Penyinaran mulai ${formatDate(currentPlant.lightStartDate)} <span style="margin:0 6px;">|</span> <i class="fas fa-clock"></i> Siram ${(currentPlant.wateringTimes || []).join(", ")}`;
 
     const settings = [
         { icon: "fa-thermometer-half", text: `Suhu ${currentPlant.tempMin}C-${currentPlant.tempMax}C` },
         { icon: "fa-hourglass-half", text: `Durasi ${currentPlant.wateringDuration}s` },
         { icon: "fa-lightbulb", text: `Lampu ${currentPlant.lightPWM}%` },
+        { icon: "fa-sun", text: `Penyinaran ${currentPlant.lightStartTime || "06:00"}-${currentPlant.lightEndTime || "17:00"}` },
         { icon: "fa-gear", text: `Mode ${String(currentMode).toUpperCase()}` },
     ];
     settingsEl.innerHTML = settings
